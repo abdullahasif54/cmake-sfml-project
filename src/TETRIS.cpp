@@ -38,7 +38,20 @@ int main()
 
         window.clear();
 
-        // Board drawing goes here
+        for (int r = 0; r < ROWS; r++)
+    {
+        for (int c = 0; c < COLS; c++)
+        {
+            block.setFillColor(colors[board[r][c]]);
+
+            block.setPosition({
+                BOARD_X + c * CELL + 1,
+                BOARD_Y + r * CELL + 1
+            });
+
+            window.draw(block);
+        }
+    }
 
         window.display();
     }
