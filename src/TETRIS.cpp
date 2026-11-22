@@ -1,4 +1,7 @@
 #include <iostream>
+#include <fstream>
+#include <cstdlib>
+#include <ctime>
 #include <SFML/Graphics.hpp>
 using namespace std;
 
@@ -10,16 +13,22 @@ const float BOARD_Y = 20.f;
 
 int board[ROWS][COLS] = {0};
 
-int piece[4][4] = {
-    {0, 1, 0, 0},
-    {1, 1, 1, 0},
-    {0, 0, 0, 0},
-    {0, 0, 0, 0}
-};
+char pieces[7][4][4];
+char activePiece[4][4];
+
+int currentPiece = 0;
+int score = 0;
+
+bool gameOver = false;
+bool paused = false;
 
 int pieceX = 3;
 int pieceY = 0;
 
+void hardDrop();
+void lockPiece();
+void clearLines();
+void spawnPiece();
 
 // Initialize colors
 void initializeColors(sf::Color colors[])
@@ -48,7 +57,7 @@ bool canMove(int dx, int dy)
     {
         for (int c = 0; c < 4; c++)
         {
-            if (piece[r][c] == 1)
+            if (activePiece[r][c] == '1')
             {
                 int newX = pieceX + c + dx;
                 int newY = pieceY + r + dy;
@@ -65,6 +74,61 @@ bool canMove(int dx, int dy)
     return true;
 }
 
+// Rotates the current piece clockwise
+void rotatePiece()
+{
+    char rotated[4][4];
+
+    // Rotate the piece
+    for (int r = 0; r < 4; r++)
+    {
+        for (int c = 0; c < 4; c++)
+        {
+            rotated[r][c] = activePiece[3 - c][r];
+        }
+    }
+
+    // Check whether the rotated piece fits
+    for (int r = 0; r < 4; r++)
+    {
+        for (int c = 0; c < 4; c++)
+        {
+            if (rotated[r][c] == '1')
+            {
+                int x = pieceX + c;
+                int y = pieceY + r;
+
+                if (x < 0 || x >= COLS || y >= ROWS)
+                    return;
+
+                if (y >= 0 && board[y][x] != 0)
+                    return;
+            }
+        }
+    }
+
+    // Save the rotated piece
+    for (int r = 0; r < 4; r++)
+    {
+        for (int c = 0; c < 4; c++)
+        {
+            activePiece[r][c] = rotated[r][c];
+        }
+    }
+}
+
+//space = last row drop
+void hardDrop()
+{
+    while (canMove(0, 1))
+    {
+        pieceY++;
+    }
+
+    lockPiece();
+    clearLines();
+    spawnPiece();
+}
 
 // Handle keyboard controls
 void handleInput(sf::RenderWindow& window)
@@ -74,8 +138,13 @@ void handleInput(sf::RenderWindow& window)
         if (event->is<sf::Event::Closed>())
             window.close();
 
-        if (event->is<sf::Event::KeyPressed>())
+        if (!gameOver && event->is<sf::Event::KeyPressed>())
         {
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::P))
+            {
+                paused = !paused;
+            }
+
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left))
             {
                 if (canMove(-1, 0))
@@ -86,6 +155,22 @@ void handleInput(sf::RenderWindow& window)
             {
                 if (canMove(1, 0))
                     pieceX++;
+            }
+
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up))
+            {
+                rotatePiece();
+            }
+
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down))
+            {
+                if (canMove(0, 1))
+                    pieceY++;
+            }
+
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space))
+            {
+                hardDrop();
             }
         }
     }
@@ -98,11 +183,71 @@ void lockPiece()
     {
         for (int c = 0; c < 4; c++)
         {
-            if (piece[r][c] == 1)
+            if (activePiece[r][c] == '1')
             {
                 board[pieceY + r][pieceX + c] = 3;
             }
         }
+    }
+}
+
+//removes the filled rows
+void clearLines()
+{
+    for (int r = ROWS - 1; r >= 0; r--)
+    {
+        bool full = true;
+
+        for (int c = 0; c < COLS; c++)
+        {
+            if (board[r][c] == 0)
+            {
+                full = false;
+                break;
+            }
+        }
+
+        if (full)
+        {
+            score += 100;
+            for (int i = r; i > 0; i--)
+            {
+                for (int c = 0; c < COLS; c++)
+                {
+                    board[i][c] = board[i - 1][c];
+                }
+            }
+
+            // Clear the top row
+            for (int c = 0; c < COLS; c++)
+            {
+                board[0][c] = 0;
+            }
+
+            r++;
+        }
+    }
+}
+
+//spawns a random piece
+void spawnPiece()
+{
+    currentPiece = rand() % 7;
+
+    for (int r = 0; r < 4; r++)
+    {
+        for (int c = 0; c < 4; c++)
+        {
+            activePiece[r][c] = pieces[currentPiece][r][c];
+        }
+    }
+
+    pieceX = 3;
+    pieceY = 0;
+
+    if (!canMove(0, 0))
+    {
+        gameOver = true;
     }
 }
 
@@ -118,15 +263,13 @@ void updateFalling(sf::Clock& clock)
         else
         {
             lockPiece();
-
-            pieceX = 3;
-            pieceY = 0;
+            clearLines();
+            spawnPiece();
         }
 
         clock.restart();
     }
 }
-
 
 // Draw the board
 void drawBoard(sf::RenderWindow& window, sf::RectangleShape& block, sf::Color colors[])
@@ -155,7 +298,7 @@ void drawPiece(sf::RenderWindow& window, sf::RectangleShape& block, sf::Color co
     {
         for (int c = 0; c < 4; c++)
         {
-            if (piece[r][c] == 1)
+            if (activePiece[r][c] == '1')
             {
                 block.setFillColor(colors[3]);
 
@@ -170,12 +313,44 @@ void drawPiece(sf::RenderWindow& window, sf::RectangleShape& block, sf::Color co
     }
 }
 
+//Loads Pieces
+bool loadPieces()
+{
+    ifstream file("../../../pieces.txt");
+
+    if (!file)
+    {
+        cout << "Could not open pieces.txt" << endl;
+        return false;
+    }
+
+    for (int p = 0; p < 7; p++)
+    {
+        for (int r = 0; r < 4; r++)
+        {
+            for (int c = 0; c < 4; c++)
+            {
+                file >> pieces[p][r][c];
+            }
+        }
+    }
+
+    file.close();
+    return true;
+}
+
 
 // Main function
 int main()
 {
     sf::RenderWindow window(sf::VideoMode({520, 640}), "Tetris");
     window.setFramerateLimit(60);
+
+    if (!loadPieces())
+    return 1;
+
+    srand(time(0));
+    spawnPiece();
 
     sf::Color colors[8];
     initializeColors(colors);
@@ -184,17 +359,59 @@ int main()
     initializeBlock(block);
 
     sf::Clock clock;
+    sf::Font font;
+
+    if (!font.openFromFile("../../../arial.ttf"))
+    {
+        cout << "Could not load font!" << endl;
+        return 1;
+    }
+
+    sf::Text scoreText(font);
+    scoreText.setCharacterSize(24);
+    scoreText.setFillColor(sf::Color::White);
+    scoreText.setPosition({350.f, 30.f});
+
+    sf::Text gameOverText(font);
+    gameOverText.setString("GAME OVER!");
+    gameOverText.setCharacterSize(40);
+    gameOverText.setFillColor(sf::Color::Red);
+    gameOverText.setPosition({130.f, 280.f});
 
     while (window.isOpen())
     {
         handleInput(window);
 
-        updateFalling(clock);
+        if (paused)
+        {
+            clock.restart();
+        }
+
+        if (!gameOver && !paused)
+        {
+            updateFalling(clock);
+        }
 
         window.clear();
 
         drawBoard(window, block, colors);
         drawPiece(window, block, colors);
+
+        if (gameOver)
+        {
+            window.draw(gameOverText);
+        }
+
+        sf::Text pausedText(font);
+        pausedText.setString("PAUSED");
+        pausedText.setCharacterSize(40);
+        pausedText.setFillColor(sf::Color::Yellow);
+        pausedText.setPosition({170.f, 280.f});
+
+        if (paused && !gameOver)
+        {
+            window.draw(pausedText);
+        }
 
         window.display();
     }
