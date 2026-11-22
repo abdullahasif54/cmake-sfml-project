@@ -11,24 +11,188 @@ const float CELL = 30.f;
 const float BOARD_X = 20.f;
 const float BOARD_Y = 20.f;
 
-int board[ROWS][COLS] = {0};
+int board[ROWS][COLS];
 
 char pieces[7][4][4];
 char activePiece[4][4];
 
 int currentPiece = 0;
 int score = 0;
+int level = 1;
+int linesCleared = 0;
+int frameCount = 0;
 
 bool gameOver = false;
 bool paused = false;
+bool mainMenu = true;
+bool noSaveMessage = false;
 
 int pieceX = 3;
 int pieceY = 0;
 
+bool loadBoard();
 void hardDrop();
 void lockPiece();
 void clearLines();
 void spawnPiece();
+void resetGame(sf::Clock& clock);
+void saveGame();
+bool loadGame();
+bool canMove(int dx, int dy);
+
+// loads the game board
+bool loadBoard()
+{
+    ifstream file("../../../board.txt");
+
+    if (!file)
+    {
+        cout << "Could not open board.txt" << endl;
+        return false;
+    }
+
+    for (int r = 0; r < ROWS; r++)
+    {
+        for (int c = 0; c < COLS; c++)
+        {
+            file >> board[r][c];
+        }
+    }
+
+    file.close();
+    return true;
+}
+
+//resets the game
+void resetGame(sf::Clock& clock)
+{
+    // Load the empty board from file
+    if (!loadBoard())
+    return;
+
+    // Reset game statistics
+    score = 0;
+    level = 1;
+    linesCleared = 0;
+
+    // Reset game states
+    gameOver = false;
+    paused = false;
+
+    // Spawn a new piece
+    spawnPiece();
+
+    // Reset the falling timer
+    clock.restart();
+
+    //resets the frame to adjust speed
+    frameCount = 0;
+}
+
+//saves game progress
+
+void saveGame()
+{
+    ofstream file("savegame.txt");
+
+    if (!file)
+    {
+        cout << "Could not save game!" << endl;
+        return;
+    }
+
+    file << score << " " << level << endl;
+
+    file << linesCleared << " " << currentPiece << endl;
+
+    for (int r = 0; r < ROWS; r++)
+    {
+        for (int c = 0; c < COLS; c++)
+        {
+            file << board[r][c] << " ";
+        }
+
+        file << endl;
+    }
+
+    file.close();
+}
+
+
+//clears the saved game
+void clearSave()
+{
+    ofstream file("savegame.txt");
+    file.close();
+}
+
+//load saved game
+
+bool loadGame()
+{
+    ifstream file("savegame.txt");
+
+    if (!file)
+    {
+        cout << "No saved game found!" << endl;
+        return false;
+    }
+
+    if (!(file >> score >> level))
+    {
+        return false;
+    }
+
+    if (!(file >> linesCleared >> currentPiece))
+    {
+        return false;
+    }
+
+    if (currentPiece < 0 || currentPiece >= 7)
+    {
+        return false;
+    }
+
+    for (int r = 0; r < ROWS; r++)
+    {
+        for (int c = 0; c < COLS; c++)
+        {
+            if (!(file >> board[r][c]))
+            {
+                return false;
+            }
+        }
+    }
+
+    file.close();
+
+    // Load the saved piece
+    for (int r = 0; r < 4; r++)
+    {
+        for (int c = 0; c < 4; c++)
+        {
+            activePiece[r][c] = pieces[currentPiece][r][c];
+        }
+    }
+
+    // Start the saved piece from the top
+    pieceX = 3;
+    pieceY = 0;
+
+    gameOver = false;
+    paused = false;
+    frameCount = 0;
+
+    if (!canMove(0, 0))
+    {
+        gameOver = true;
+        clearSave();
+        return false;
+    }
+
+    return true;
+}
+
 
 // Initialize colors
 void initializeColors(sf::Color colors[])
@@ -131,38 +295,80 @@ void hardDrop()
 }
 
 // Handle keyboard controls
-void handleInput(sf::RenderWindow& window)
+void handleInput(sf::RenderWindow& window, sf::Clock& clock)
 {
     while (const std::optional event = window.pollEvent())
     {
         if (event->is<sf::Event::Closed>())
             window.close();
 
-        if (!gameOver && event->is<sf::Event::KeyPressed>())
+        if (mainMenu && event->is<sf::Event::MouseButtonPressed>())
         {
+            sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+
+            // PLAY button
+            if (mousePos.x >= 140 && mousePos.x <= 390 && mousePos.y >= 285 && mousePos.y <= 360)
+            {
+                mainMenu = false;
+                resetGame(clock);
+            }
+
+            // EXIT button
+            if (mousePos.x >= 140 && mousePos.x <= 390 && mousePos.y >= 455 && mousePos.y <= 530)
+            {
+                window.close();
+            }
+
+            // CONTINUE button
+            if (mousePos.x >= 140 && mousePos.x <= 390 && mousePos.y >= 370 && mousePos.y <= 445)
+            {
+                if (loadGame())
+                {
+                    mainMenu = false;
+                    noSaveMessage = false;
+                    clock.restart();
+                }
+                else
+                {
+                    noSaveMessage = true;
+                }
+            }
+        }    
+
+        if (event->is<sf::Event::KeyPressed>())
+        {
+            if (!mainMenu && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Escape))
+            {
+                if (!gameOver)
+                    saveGame();
+                mainMenu = true;
+                paused = false;
+                clock.restart();
+            }
+            
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::P))
             {
                 paused = !paused;
             }
 
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left))
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A))
             {
                 if (canMove(-1, 0))
                     pieceX--;
             }
 
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right))
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D))
             {
                 if (canMove(1, 0))
                     pieceX++;
             }
 
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up))
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W))
             {
                 rotatePiece();
             }
 
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down))
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S))
             {
                 if (canMove(0, 1))
                     pieceY++;
@@ -171,6 +377,16 @@ void handleInput(sf::RenderWindow& window)
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space))
             {
                 hardDrop();
+            }
+
+            if (gameOver && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::R))
+            {
+                resetGame(clock);
+            }
+
+            if (gameOver && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::M))
+            {
+                mainMenu = true;
             }
         }
     }
@@ -185,7 +401,7 @@ void lockPiece()
         {
             if (activePiece[r][c] == '1')
             {
-                board[pieceY + r][pieceX + c] = 3;
+                board[pieceY + r][pieceX + c] = currentPiece + 1;
             }
         }
     }
@@ -210,6 +426,12 @@ void clearLines()
         if (full)
         {
             score += 100;
+            linesCleared++;
+
+            if (linesCleared % 10 == 0)
+            {
+                level++;
+            }
             for (int i = r; i > 0; i--)
             {
                 for (int c = 0; c < COLS; c++)
@@ -248,13 +470,23 @@ void spawnPiece()
     if (!canMove(0, 0))
     {
         gameOver = true;
+        clearSave();
     }
 }
 
 // Handle automatic falling
-void updateFalling(sf::Clock& clock)
+void updateFalling()
 {
-    if (clock.getElapsedTime().asSeconds() >= 0.5f)
+    int speed = 30 - (level - 1) * 5;
+
+    if (speed < 5)
+    {
+        speed = 5;
+    }
+
+    frameCount++;
+
+    if (frameCount >= speed)
     {
         if (canMove(0, 1))
         {
@@ -267,7 +499,7 @@ void updateFalling(sf::Clock& clock)
             spawnPiece();
         }
 
-        clock.restart();
+        frameCount = 0;
     }
 }
 
@@ -300,7 +532,7 @@ void drawPiece(sf::RenderWindow& window, sf::RectangleShape& block, sf::Color co
         {
             if (activePiece[r][c] == '1')
             {
-                block.setFillColor(colors[3]);
+                block.setFillColor(colors[currentPiece + 1]);
 
                 block.setPosition({
                     BOARD_X + (pieceX + c) * CELL + 1,
@@ -344,6 +576,49 @@ bool loadPieces()
 int main()
 {
     sf::RenderWindow window(sf::VideoMode({520, 640}), "Tetris");
+    sf::Texture backgroundTexture;
+
+    if (!backgroundTexture.loadFromFile("../../../forest_menu.png"))
+    {
+        cout << "Could not load forest background!" << endl;
+        return 1;
+    }
+
+    sf::Sprite backgroundSprite(backgroundTexture);
+
+    float scaleX = 520.f / backgroundTexture.getSize().x;
+    float scaleY = 640.f / backgroundTexture.getSize().y;
+
+    float scale = (scaleX > scaleY) ? scaleX : scaleY;
+
+    backgroundSprite.setScale({scale, scale});
+
+    float width = backgroundTexture.getSize().x * scale;
+    float height = backgroundTexture.getSize().y * scale;
+
+    backgroundSprite.setPosition({(520.f - width) / 2.f, (640.f - height) / 2.f});
+
+    sf::Texture gameBackgroundTexture;
+
+    if (!gameBackgroundTexture.loadFromFile("../../../game_background.png"))
+    {
+        cout << "Could not load game background!" << endl;
+        return 1;
+    }
+
+    sf::Sprite gameBackgroundSprite(gameBackgroundTexture);
+
+    float gameScaleX = 520.f / gameBackgroundTexture.getSize().x;
+    float gameScaleY = 640.f / gameBackgroundTexture.getSize().y;
+
+    float gameScale = (gameScaleX > gameScaleY) ? gameScaleX : gameScaleY;
+
+    gameBackgroundSprite.setScale({gameScale, gameScale});
+
+    float gameWidth = gameBackgroundTexture.getSize().x * gameScale;
+    float gameHeight = gameBackgroundTexture.getSize().y * gameScale;
+
+    gameBackgroundSprite.setPosition({(520.f - gameWidth) / 2.f, (640.f - gameHeight) / 2.f});
     window.setFramerateLimit(60);
 
     if (!loadPieces())
@@ -372,15 +647,46 @@ int main()
     scoreText.setFillColor(sf::Color::White);
     scoreText.setPosition({350.f, 30.f});
 
+    sf::Text levelText(font);
+    levelText.setCharacterSize(24);
+    levelText.setFillColor(sf::Color::White);
+    levelText.setPosition({350.f, 80.f});
+
+    sf::Text linesText(font);
+    linesText.setCharacterSize(24);
+    linesText.setFillColor(sf::Color::White);
+    linesText.setPosition({350.f, 130.f});
+
     sf::Text gameOverText(font);
     gameOverText.setString("GAME OVER!");
     gameOverText.setCharacterSize(40);
     gameOverText.setFillColor(sf::Color::Red);
     gameOverText.setPosition({130.f, 280.f});
 
+    sf::Text noSaveText(font);
+    noSaveText.setString("No saved game!");
+    noSaveText.setCharacterSize(30);
+    noSaveText.setFillColor(sf::Color::Black);
+    noSaveText.setPosition({160.f, 540.f});
+
     while (window.isOpen())
     {
-        handleInput(window);
+        handleInput(window, clock);
+        if (mainMenu)
+        {
+            window.clear();
+
+            window.draw(backgroundSprite);
+
+            if (noSaveMessage)
+            {
+                window.draw(noSaveText);
+            }
+
+            window.display();
+
+            continue;
+        }
 
         if (paused)
         {
@@ -389,13 +695,23 @@ int main()
 
         if (!gameOver && !paused)
         {
-            updateFalling(clock);
+            updateFalling();
         }
 
         window.clear();
+        
+        window.draw(gameBackgroundSprite);
 
         drawBoard(window, block, colors);
         drawPiece(window, block, colors);
+
+        scoreText.setString("Score: " + to_string(score));
+        levelText.setString("Level: " + to_string(level));
+        linesText.setString("Lines: " + to_string(linesCleared));
+
+        window.draw(scoreText);
+        window.draw(levelText);
+        window.draw(linesText);
 
         if (gameOver)
         {
